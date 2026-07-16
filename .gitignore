@@ -1,0 +1,45 @@
+Backend/.env
+Frontend/.env
+Backend/.venv/
+Frontend/node_modules/
+
+.venv/
+
+# Python generated files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Python environments
+.venv/
+venv/
+Backend/.venv/
+Backend/venv/
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+Backend/.env
+Frontend/.env
+
+# Frontend generated files
+node_modules/
+Frontend/node_modules/
+Frontend/dist/
+Frontend/.vite/
+
+# Generated audio
+*.wav
+*.mp3
+*.ogg
+*.webm
+
+# Credentials
+*credentials*.json
+service-account*.json
+
+# Editors and operating system
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,39 @@
+@'
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+Backend/.env
+Frontend/.env
+
+# Python
+Backend/.venv/
+Backend/venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Node / React
+Frontend/node_modules/
+Frontend/dist/
+Frontend/.vite/
+
+# VS Code and operating system
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Generated audio
+*.wav
+*.mp3
+*.ogg
+*.webm
+
+# Credentials
+**/service-account*.json
+**/*credentials*.json
+
+# Logs
+*.log
+'@ | Set-Content .gitignore
