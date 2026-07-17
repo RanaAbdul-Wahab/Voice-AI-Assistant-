@@ -1,118 +1,87 @@
 # Voice AI Assistant
 
-A full-stack, multi-agent voice assistant built with **Google Agent Development Kit (ADK)**, **Vertex AI RAG**, **Google Search**, **Cloud Speech-to-Text**, **Gemini Text-to-Speech**, **FastAPI**, and **React**.
+A production-style multi-agent AI assistant built with **Google ADK**, **Vertex AI**, **FastAPI**, and **React**.
 
-The assistant can:
+The application supports two interaction styles from one chatbot interface:
 
-- Accept typed questions or microphone recordings
-- Convert speech to text using **Chirp 3**
-- Route questions through a **Master Agent**
-- Search uploaded company documents through a **RAG Agent**
-- Search current public information through a **Search Agent**
-- Combine document and web information in one answer
-- Convert the final answer into speech using **Gemini TTS**
-- Prepare and cache audio in the browser for faster replay
+- **Text chat:** the user types a message and receives a text response.
+- **Voice call:** the user starts a full-screen speech-to-speech call. The system listens, detects silence, transcribes speech, generates an agent response, speaks the answer, and then listens again.
+
+---
+
+## Features
+
+### Text chatbot
+
+- Standard chatbot conversation UI
+- Text input with Enter-to-send
+- Text-only assistant responses
+- Conversation sessions
+- New-conversation option
+- Responsive desktop and mobile layout
+
+### Speech-to-speech voice call
+
+- Full-screen voice-call interface
+- Automatic microphone recording
+- Silence detection
+- Google Cloud Speech-to-Text V2 with Chirp 3
+- Multi-agent response generation
+- Gemini text-to-speech
+- Automatic audio playback
+- Continuous turn-based conversation
+- End-call and close controls
+- Voice-call content is kept separate from text-chat messages
+
+### Multi-agent system
+
+- **Master Agent:** routes requests to the correct specialist
+- **RAG Agent:** answers questions from internal company documents
+- **Search Agent:** handles current public-information requests
+- Shared Google ADK runner and session service
 
 ---
 
 ## Architecture
 
 ```text
-User
-  |
-  |-- Typed question
-  |-- Microphone recording
-  |
-  v
-React Frontend
-  |
-  |-- POST /api/stt
-  |-- POST /api/chat
-  |-- POST /api/tts
-  |
-  v
-FastAPI Backend
-  |
-  v
-Master Agent
-  |
-  |-- RAG Agent
-  |     |
-  |     v
-  |   Vertex AI RAG Corpus
-  |
-  |-- Search Agent
-        |
-        v
-      Google Search
+                         ┌─────────────────────┐
+                         │    React Frontend   │
+                         └──────────┬──────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    │                               │
+             Text message                    Voice call
+                    │                               │
+                    │                        Browser microphone
+                    │                               │
+                    │                         POST /api/stt
+                    │                               │
+                    │                     Chirp 3 transcription
+                    │                               │
+                    └───────────────┬───────────────┘
+                                    │
+                              POST /api/chat
+                                    │
+                         FastAPI + Google ADK
+                                    │
+                              Master Agent
+                           ┌────────┴────────┐
+                           │                 │
+                       RAG Agent        Search Agent
+                           │                 │
+                     Vertex AI RAG      Web search
+                           └────────┬────────┘
+                                    │
+                              Text response
+                           ┌────────┴────────┐
+                           │                 │
+                    Text-chat display   POST /api/tts
+                                             │
+                                      Gemini TTS audio
+                                             │
+                                      Browser playback
 ```
-
-The Master Agent decides whether the question needs:
-
-- Company documents only
-- Current web information only
-- Both documents and web search
-- A direct general response
-
----
-
-## Main Features
-
-### Multi-Agent Routing
-
-The Master Agent routes requests to the correct specialized agent.
-
-### Retrieval-Augmented Generation
-
-The RAG Agent searches uploaded company documents stored in a Vertex AI RAG corpus.
-
-Example documents:
-
-- Annual leave policy
-- Sick leave policy
-- Maternity leave policy
-- Travel policy
-- OPD policy
-- Work-from-home policy
-- Reimbursement policy
-- Other internal company policies
-
-### Web Search
-
-The Search Agent retrieves current public information for questions that require recent or external data.
-
-### Speech-to-Text
-
-The frontend records microphone audio and sends it to:
-
-```text
-POST /api/stt
-```
-
-Default configuration:
-
-```text
-Model: chirp_3
-Language: en-IN
-```
-
-### Text-to-Speech
-
-The final answer is converted into audio through:
-
-```text
-POST /api/tts
-```
-
-Default configuration:
-
-```text
-Model: gemini-2.5-flash-tts
-Voice: Kore
-Language: en-IN
-```
-
-The frontend can prepare TTS audio in the background and cache it for repeated playback.
 
 ---
 
@@ -120,17 +89,16 @@ The frontend can prepare TTS audio in the background and cache it for repeated p
 
 ### Backend
 
-- Python
+- Python 3.12
 - FastAPI
 - Uvicorn
 - Google Agent Development Kit
-- Google Gen AI SDK
 - Vertex AI
+- Gemini 2.5 Flash
 - Vertex AI RAG
-- Google Cloud Speech-to-Text
-- Google Cloud Text-to-Speech
-- Python Multipart
-- Python Dotenv
+- Google Cloud Speech-to-Text V2
+- Chirp 3
+- Gemini 2.5 Flash TTS
 
 ### Frontend
 
@@ -138,18 +106,8 @@ The frontend can prepare TTS audio in the background and cache it for repeated p
 - Vite
 - JavaScript
 - MediaRecorder API
-- Fetch API
-- HTML Audio API
+- Web Audio API
 - CSS
-
-### Cloud Services
-
-- Google Cloud Vertex AI
-- Vertex AI RAG
-- Google Search grounding
-- Cloud Speech-to-Text
-- Cloud Text-to-Speech
-- Application Default Credentials
 
 ---
 
@@ -157,171 +115,88 @@ The frontend can prepare TTS audio in the background and cache it for repeated p
 
 ```text
 Demo_project/
-|
-|-- Backend/
-|   |
-|   |-- app/
-|   |   |
-|   |   |-- agents/
-|   |   |   |-- __init__.py
-|   |   |   |-- master_agent.py
-|   |   |   |-- rag_agent.py
-|   |   |   `-- search_agent.py
-|   |   |
-|   |   |-- routers/
-|   |   |   |-- __init__.py
-|   |   |   `-- speech.py
-|   |   |
-|   |   |-- services/
-|   |   |   |-- __init__.py
-|   |   |   |-- speech_to_text.py
-|   |   |   `-- text_to_speech.py
-|   |   |
-|   |   |-- __init__.py
-|   |   |-- agent_runtime.py
-|   |   |-- config.py
-|   |   |-- main.py
-|   |   |-- rag_service.py
-|   |   `-- schemas.py
-|   |
-|   |-- scripts/
-|   |   `-- setup_corpus.py
-|   |
-|   |-- requirements.txt
-|   `-- .env
-|
-|-- Frontend/
-|   |
-|   |-- public/
-|   |
-|   |-- src/
-|   |   |
-|   |   |-- services/
-|   |   |   `-- api.js
-|   |   |
-|   |   |-- App.css
-|   |   |-- App.jsx
-|   |   |-- index.css
-|   |   `-- main.jsx
-|   |
-|   |-- package.json
-|   |-- package-lock.json
-|   |-- vite.config.js
-|   `-- .env
-|
-|-- .gitignore
-`-- README.md
+│
+├── Backend/
+│   ├── app/
+│   │   ├── agents/
+│   │   │   ├── master_agent.py
+│   │   │   ├── rag_agent.py
+│   │   │   └── search_agent.py
+│   │   │
+│   │   ├── routers/
+│   │   │   └── speech.py
+│   │   │
+│   │   ├── services/
+│   │   │   ├── speech_to_text.py
+│   │   │   └── text_to_speech.py
+│   │   │
+│   │   ├── agent_runtime.py
+│   │   ├── config.py
+│   │   ├── main.py
+│   │   └── schemas.py
+│   │
+│   ├── .env
+│   └── requirements.txt
+│
+├── Frontend/
+│   ├── src/
+│   │   ├── services/
+│   │   │   └── api.js
+│   │   ├── App.jsx
+│   │   ├── App.css
+│   │   ├── index.css
+│   │   └── main.jsx
+│   │
+│   ├── .env
+│   ├── package.json
+│   └── package-lock.json
+│
+├── .gitignore
+└── README.md
 ```
 
 ---
 
 ## Prerequisites
 
-Install:
+Install the following before running the project:
 
-- Python 3.10 or later
-- Node.js 20 or later
-- npm
+- Python 3.12
+- Node.js and npm
 - Git
 - Google Cloud CLI
 - A Google Cloud project with billing enabled
 
-Check installed versions:
+The following Google Cloud services must be available in the project:
 
-```powershell
-python --version
-node --version
-npm --version
-git --version
-gcloud --version
-```
+- Vertex AI API
+- Speech-to-Text API
+- Text-to-Speech API
+- Vertex AI RAG resources
 
 ---
 
-## Google Cloud Setup
+## Google Cloud Authentication
 
-### 1. Sign in
+Authenticate Application Default Credentials:
 
-```powershell
-gcloud auth login
-```
-
-### 2. Set the project
-
-```powershell
-gcloud config set project YOUR_PROJECT_ID
-```
-
-### 3. Configure Application Default Credentials
-
-```powershell
+```cmd
 gcloud auth application-default login
 ```
 
-```powershell
-gcloud auth application-default set-quota-project YOUR_PROJECT_ID
+Set the active project:
+
+```cmd
+gcloud config set project demoproject-502507
 ```
 
-### 4. Enable required APIs
+Confirm authentication:
 
-```powershell
-gcloud services enable aiplatform.googleapis.com
-gcloud services enable speech.googleapis.com
-gcloud services enable texttospeech.googleapis.com
+```cmd
+gcloud auth application-default print-access-token
 ```
 
-### 5. Add required IAM permissions
-
-The authenticated user or service account needs the required Vertex AI permissions.
-
-Example:
-
-```powershell
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID `
-  --member="user:YOUR_EMAIL" `
-  --role="roles/aiplatform.user"
-```
-
----
-
-## Backend Setup
-
-From the project root:
-
-```powershell
-cd Backend
-```
-
-### 1. Create a virtual environment
-
-```powershell
-python -m venv .venv
-```
-
-### 2. Activate it
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-If PowerShell blocks activation:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-```
-
-Then activate again:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-### 3. Install dependencies
-
-```powershell
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
+Do not commit Google credentials, access tokens, service-account keys, or `.env` files.
 
 ---
 
@@ -330,55 +205,98 @@ pip install -r requirements.txt
 Create:
 
 ```text
-Backend/.env
+Backend\.env
 ```
 
 Example:
 
 ```env
-# Google Cloud
-GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID
+GOOGLE_CLOUD_PROJECT=demoproject-502507
 GOOGLE_CLOUD_LOCATION=europe-west3
-GOOGLE_GENAI_USE_VERTEXAI=true
+GOOGLE_GENAI_USE_VERTEXAI=TRUE
 
-# Agent model
 MODEL_ID=gemini-2.5-flash
+ADK_APP_NAME=voice_ai_assistant
 
-# Vertex AI RAG
-RAG_CORPUS_NAME=projects/YOUR_PROJECT_NUMBER/locations/YOUR_LOCATION/ragCorpora/YOUR_CORPUS_ID
+RAG_CORPUS_NAME=projects/YOUR_PROJECT_NUMBER/locations/europe-west3/ragCorpora/YOUR_CORPUS_ID
 RAG_TOP_K=5
+RAG_DISTANCE_THRESHOLD=0.6
 
-# Speech-to-Text
 STT_LOCATION=eu
 STT_MODEL=chirp_3
-STT_DEFAULT_LANGUAGE=en-IN
+STT_LANGUAGE_CODE=en-IN
 
-# Text-to-Speech
 TTS_LOCATION=global
 TTS_MODEL=gemini-2.5-flash-tts
-TTS_VOICE=Kore
-TTS_DEFAULT_LANGUAGE=en-IN
-
-# Voice response size
+TTS_VOICE_NAME=Kore
+TTS_LANGUAGE_CODE=en-IN
 TTS_MAX_RESPONSE_BYTES=1800
 
-# Optional
-# TTS_PROMPT=Speak clearly in a warm professional tone.
+FRONTEND_ORIGIN=http://localhost:5173
 ```
 
-Do not commit `.env` to GitHub.
+Replace the RAG corpus placeholder with your actual corpus resource name.
 
 ---
 
-## Run the Backend
+## Frontend Environment Variables
 
-From the `Backend` directory:
+Create:
 
-```powershell
+```text
+Frontend\.env
+```
+
+Add:
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Restart Vite after changing frontend environment variables.
+
+---
+
+## Backend Setup
+
+Open **Command Prompt** and go to the project root:
+
+```cmd
+cd /d "C:\Users\abdul.wahab\Desktop\Demo_project"
+```
+
+Create a virtual environment when one does not already exist:
+
+```cmd
+python -m venv .venv
+```
+
+Activate it:
+
+```cmd
+.venv\Scripts\activate
+```
+
+Install backend dependencies:
+
+```cmd
+pip install -r Backend\requirements.txt
+```
+
+Start the FastAPI server:
+
+```cmd
+cd Backend
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Swagger documentation:
+Backend URL:
+
+```text
+http://127.0.0.1:8000
+```
+
+Interactive API documentation:
 
 ```text
 http://127.0.0.1:8000/docs
@@ -388,31 +306,25 @@ http://127.0.0.1:8000/docs
 
 ## Frontend Setup
 
-Open a second terminal:
+Open a second Command Prompt window:
 
-```powershell
-cd Frontend
+```cmd
+cd /d "C:\Users\abdul.wahab\Desktop\Demo_project\Frontend"
 ```
 
-### 1. Install dependencies
+Install dependencies:
 
-```powershell
+```cmd
 npm install
 ```
 
-### 2. Create `Frontend/.env`
+Start Vite:
 
-```env
-VITE_API_URL=http://127.0.0.1:8000
-```
-
-### 3. Start the frontend
-
-```powershell
+```cmd
 npm run dev
 ```
 
-Open the URL shown by Vite, normally:
+Frontend URL:
 
 ```text
 http://localhost:5173
@@ -422,32 +334,27 @@ http://localhost:5173
 
 ## API Endpoints
 
-### Health Check
+### Health check
 
 ```http
 GET /health
 ```
 
-Example response:
+Checks whether the backend is running.
 
-```json
-{
-  "status": "ok"
-}
-```
-
-### Chat With the Master Agent
+### Agent chat
 
 ```http
 POST /api/chat
+Content-Type: application/json
 ```
 
-Example request:
+Example body:
 
 ```json
 {
-  "question": "Compare our maternity leave policy with current law in Pakistan.",
-  "user_id": "demo-user",
+  "question": "What is the maternity policy?",
+  "user_id": "user-123",
   "session_id": null
 }
 ```
@@ -456,138 +363,227 @@ Example response:
 
 ```json
 {
-  "answer": "The company policy provides...",
+  "answer": "The policy states...",
   "agent": "master_agent",
   "session_id": "generated-session-id"
 }
 ```
 
-### Speech-to-Text
+### Speech-to-text
 
 ```http
 POST /api/stt
+Content-Type: multipart/form-data
 ```
 
-Form data:
+Form fields:
 
 ```text
-audio: voice-recording.webm
-language_code: en-IN
+audio          microphone recording
+language_code  en-IN
 ```
 
-### Text-to-Speech
-
-```http
-POST /api/tts
-```
-
-Example request:
+Example response:
 
 ```json
 {
-  "text": "Your leave request has been approved.",
-  "language_code": "en-IN",
-  "voice_name": "Kore",
-  "prompt": null
+  "transcript": "What is the leave policy?",
+  "language_code": "en-IN"
 }
 ```
 
-The endpoint returns audio data.
+### Text-to-speech
+
+```http
+POST /api/tts
+Content-Type: application/json
+```
+
+Example body:
+
+```json
+{
+  "text": "Here is the answer.",
+  "language_code": "en-IN"
+}
+```
+
+Returns an audio response that the frontend plays through the Web Audio API.
 
 ---
 
-## Test Questions
+## Application Behaviour
 
-### RAG Agent
-
-```text
-How many annual leaves are allowed according to our company policy?
-```
-
-### Search Agent
+### Typed message flow
 
 ```text
-What are the latest developments in generative AI?
-```
-
-### Combined RAG and Web Search
-
-```text
-Compare our company maternity leave policy with the latest maternity leave laws applicable in Pakistan. Highlight differences in duration, pay, eligibility, and employee rights.
-```
-
-Another combined test:
-
-```text
-According to our uploaded leave policy, how many annual leaves are available, and how does this compare with current labour-law requirements in Pakistan?
-```
-
----
-
-## Voice Flow
-
-```text
-Microphone recording
-        |
-        v
-POST /api/stt
-        |
-        v
-Transcript appears in the input field
-        |
-        v
+User types a message
+        ↓
 POST /api/chat
-        |
-        v
-Master Agent selects RAG, Search, or both
-        |
-        v
-Text response appears
-        |
-        v
-POST /api/tts runs in the background
-        |
-        v
-Audio is cached in the browser
-        |
-        v
-Speak button plays the prepared audio
+        ↓
+Assistant text is displayed
 ```
+
+Typed messages do not call `/api/tts`.
+
+### Voice-call flow
+
+```text
+User starts voice call
+        ↓
+Browser listens
+        ↓
+Silence is detected
+        ↓
+POST /api/stt
+        ↓
+POST /api/chat
+        ↓
+POST /api/tts
+        ↓
+Assistant audio plays
+        ↓
+Browser listens again
+```
+
+Voice-call messages are not added to the normal chatbot history.
 
 ---
 
-## Response-Length Control
+## Sessions
 
-Long responses take more time to synthesize and produce larger audio files. The project therefore uses:
-
-1. Agent instructions that request concise spoken responses
-2. A backend byte limit before the text is sent to TTS
-
-Example:
-
-```env
-TTS_MAX_RESPONSE_BYTES=1800
-```
-
-A useful target is approximately 60 to 90 spoken words.
-
----
-
-## Automatic Function-Calling Limit
-
-The agents can be configured with a maximum number of automatic remote calls:
+The backend currently uses Google ADK's:
 
 ```python
-from google.genai import types
-
-generate_content_config=types.GenerateContentConfig(
-    automatic_function_calling=types.AutomaticFunctionCallingConfig(
-        maximum_remote_calls=5
-    )
-)
+InMemorySessionService
 ```
 
-This limit applies to each model invocation, not necessarily to the complete multi-agent request.
+This preserves conversational context while the backend process remains active.
+
+Current limitations:
+
+- Sessions are lost after a backend restart.
+- The current frontend demo uses a fixed user ID.
+- Voice calls and text chat can use separate session IDs.
+
+For production, replace the fixed user ID with an authenticated user ID and use a persistent session service.
+
+---
+
+## Testing
+
+### Test text chat
+
+Send:
+
+```text
+Hello
+```
+
+Expected backend request:
+
+```text
+POST /api/chat 200 OK
+```
+
+There should be no TTS request for typed messages.
+
+### Test voice call
+
+1. Click the microphone button.
+2. Allow microphone access.
+3. Speak naturally.
+4. Pause after finishing your sentence.
+5. Wait for the assistant to respond.
+6. Continue speaking after the assistant finishes.
+7. Press **End call** to return to the chatbot.
+
+Expected backend sequence:
+
+```text
+POST /api/stt  200 OK
+POST /api/chat 200 OK
+POST /api/tts  200 OK
+```
+
+---
+
+## Common Errors
+
+### `422 Unprocessable Entity` on `/api/stt`
+
+The frontend multipart field names must match the FastAPI route:
+
+```javascript
+formData.append("audio", audioBlob, filename);
+formData.append("language_code", languageCode);
+```
+
+Do not manually set the multipart `Content-Type` header.
+
+### Import error for `transcribe_audio`
+
+The STT service exposes a class:
+
+```python
+SpeechToTextService
+```
+
+and a method:
+
+```python
+transcribe(audio_content, language_code)
+```
+
+The speech router must instantiate the class rather than import a nonexistent function.
+
+### Import error for `TextToSpeechRequest`
+
+Confirm that `Backend/app/schemas.py` includes:
+
+```python
+class TextToSpeechRequest(BaseModel):
+    text: str
+    language_code: str = "en-IN"
+```
+
+### Git push rejected with `fetch first`
+
+Run:
+
+```cmd
+git fetch origin
+git rebase origin/main
+git push -u origin main
+```
+
+Resolve any conflicts before continuing the rebase.
+
+### Git is not recognized
+
+Locate Git:
+
+```cmd
+where git
+```
+
+A common installation path is:
+
+```text
+C:\Users\abdul.wahab\AppData\Local\Programs\Git\cmd\git.exe
+```
+
+Restart VS Code after installing Git so new terminals receive the updated PATH.
+
+### RAG deprecation warning
+
+The application may display a warning that:
+
+```text
+vertexai.preview.rag
+```
+
+is deprecated. It is a warning rather than a startup failure. A future version should migrate the RAG integration to the Agent Platform client.
 
 ---
 
@@ -595,154 +591,102 @@ This limit applies to each model invocation, not necessarily to the complete mul
 
 Never commit:
 
-```text
-.env
-.venv/
-node_modules/
-service-account.json
-credentials.json
-*.wav
-*.mp3
-__pycache__/
-*.pyc
-```
+- `.env` files
+- API keys
+- Access tokens
+- Service-account JSON files
+- Database passwords
+- Google Cloud credentials
+- Virtual environments
+- `node_modules`
+- Temporary audio recordings
 
-Recommended `.gitignore`:
+Recommended `.gitignore` entries:
 
 ```gitignore
-# Environment variables
 .env
 .env.*
 !.env.example
+
 Backend/.env
 Frontend/.env
 
-# Python
 .venv/
 venv/
+env/
 Backend/.venv/
-Backend/venv/
+
 __pycache__/
 *.py[cod]
 
-# Frontend
 node_modules/
 Frontend/node_modules/
+
+dist/
 Frontend/dist/
-Frontend/.vite/
 
-# Generated audio
 *.wav
-*.mp3
-*.ogg
 *.webm
+*.mp3
+```
 
-# Credentials
-*credentials*.json
-service-account*.json
+Review staged files before committing:
 
-# Editor and OS files
-.vscode/
-.DS_Store
-Thumbs.db
+```cmd
+git diff --cached --name-only
 ```
 
 ---
 
-## Common Issues
+## Current Limitations
 
-### Git is not recognized
-
-Restart VS Code after installing Git, then run:
-
-```powershell
-git --version
-```
-
-### Google credentials are not found
-
-```powershell
-gcloud auth application-default login
-gcloud auth application-default set-quota-project YOUR_PROJECT_ID
-```
-
-### `/api/tts` returns 405
-
-The endpoint supports `POST`, not `GET`.
-
-### TTS is slower than the Master Agent
-
-Synchronous TTS generates the complete audio before returning it. Current optimizations include:
-
-- Shorter agent responses
-- Background TTS generation
-- Browser audio caching
-- Optional compressed audio output
-
-A future improvement is streaming TTS over WebSockets.
-
-### Microphone permission denied
-
-Allow microphone access in the browser:
-
-```text
-Site settings -> Microphone -> Allow
-```
-
-### CORS error
-
-Confirm that FastAPI allows the frontend origin:
-
-```text
-http://localhost:5173
-```
+- Voice communication is turn-based rather than true bidirectional streaming.
+- Speech recognition begins processing after silence is detected.
+- Sessions are stored in memory.
+- Authentication is not yet integrated.
+- The demo uses a fixed user ID.
+- Long-term user memory is not yet implemented.
+- RAG currently uses a deprecated preview module.
 
 ---
 
-## Future Improvements
+## Planned Improvements
 
-- Streaming agent responses
-- Streaming TTS through WebSockets
+- Persistent Google ADK sessions
+- Long-term user memory
 - User authentication
-- Conversation history database
-- Role-based access to company documents
-- Document upload interface
-- Source citations in RAG answers
-- Admin dashboard
-- Observability and tracing
-- Automated tests
-- Docker deployment
-- Cloud Run deployment
-- GitHub Actions CI/CD
+- Streaming speech-to-text
+- Streaming Gemini voice responses
+- Voice interruption and barge-in
+- MCP tool integrations
+- Google Calendar and Drive tools
+- HR and leave-management integrations
+- Production database storage
+- Structured logging and monitoring
+- Agent tracing and evaluation
+- Migration from `vertexai.preview.rag` to Agent Platform
 
 ---
 
-## Git Workflow
+## MCP Expansion
 
-After making changes:
+Model Context Protocol can later connect the assistant to external business tools such as:
 
-```powershell
-git status
-git add .
-git commit -m "Describe the changes"
-git push
-```
+- Google Calendar
+- Google Drive
+- Jira
+- HR systems
+- Leave-management systems
+- Internal APIs
+- Databases
 
-Example:
-
-```powershell
-git add .
-git commit -m "Improve voice playback and frontend interface"
-git push
-```
+MCP should be added in the backend agent/tool layer. It does not replace Google ADK, STT, TTS, RAG, or memory.
 
 ---
 
-## Repository
+## License
 
-```text
-https://github.com/RanaAbdul-Wahab/Voice-AI-Assistant-.git
-```
+Add the appropriate license for your organization before publishing or distributing the project.
 
 ---
 
@@ -750,8 +694,8 @@ https://github.com/RanaAbdul-Wahab/Voice-AI-Assistant-.git
 
 **Rana Abdul Wahab**
 
----
+Repository:
 
-## License
-
-This project is currently intended for learning, demonstration, and internal development. Add a formal license before distributing or using it commercially.
+```text
+https://github.com/RanaAbdul-Wahab/Voice-AI-Assistant-.git
+```
