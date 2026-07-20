@@ -1,231 +1,251 @@
-import asyncio
-import logging
-from typing import Optional
+from dataclasses import dataclass
+from typing import Any
+from uuid import uuid4
 
-from google.adk.agents import BaseAgent
-from google.adk.runners import Runner
-from google.adk.sessions import (
-    InMemorySessionService,
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
 )
-from google.genai import types
 
-from .config import settings
+from langchain_core.runnables import (
+    RunnableConfig,
+)
+
+from langfuse import propagate_attributes
+
+from app.graphs import assistant_graph
+
+from app.observability import (
+    create_langfuse_handler,
+)
 
 
-logger = logging.getLogger(__name__)
+@dataclass(frozen=True)
+class AgentReply:
+    answer: str
+    session_id: str
 
 
 class AgentRuntime:
-    def __init__(
-        self,
-        agent: BaseAgent,
-    ) -> None:
-        self.agent = agent
+    """
+    FastAPI wrapper around the compiled LangGraph.
 
-        self.app_name = (
-            settings.app_name
-        )
+    session_id is used as LangGraph's thread_id.
 
-        self.session_service = (
-            InMemorySessionService()
-        )
+    Reusing the same session_id preserves short-term
+    conversation context and groups related traces
+    inside Langfuse.
+    """
 
-        self.runner = Runner(
-            agent=self.agent,
-            app_name=self.app_name,
-            session_service=(
-                self.session_service
-            ),
-        )
-
-        self._session_creation_lock = (
-            asyncio.Lock()
-        )
-
-
-    async def ensure_session(
-        self,
-        user_id: str,
-        session_id: str,
-    ) -> None:
-        existing_session = (
-            await self.session_service
-            .get_session(
-                app_name=self.app_name,
-                user_id=user_id,
-                session_id=session_id,
-            )
-        )
-
-        if existing_session is not None:
-            return
-
-        async with (
-            self._session_creation_lock
-        ):
-            existing_session = (
-                await self.session_service
-                .get_session(
-                    app_name=self.app_name,
-                    user_id=user_id,
-                    session_id=session_id,
-                )
-            )
-
-            if (
-                existing_session
-                is not None
-            ):
-                return
-
-            await self.session_service.create_session(
-                app_name=self.app_name,
-                user_id=user_id,
-                session_id=session_id,
-            )
-
-            logger.info(
-                "Created ADK session: "
-                "user_id=%s session_id=%s",
-                user_id,
-                session_id,
-            )
-
-
-    @staticmethod
-    def extract_text_from_event(
-        event,
-    ) -> str:
-        content = getattr(
-            event,
-            "content",
-            None,
-        )
-
-        if content is None:
-            return ""
-
-        parts = getattr(
-            content,
-            "parts",
-            None,
-        )
-
-        if not parts:
-            return ""
-
-        text_parts: list[str] = []
-
-        for part in parts:
-            text = getattr(
-                part,
-                "text",
-                None,
-            )
-
-            if text:
-                text_parts.append(
-                    text
-                )
-
-        return "".join(
-            text_parts
-        ).strip()
-
+    def __init__(self) -> None:
+        self.graph = assistant_graph
 
     async def ask(
         self,
         question: str,
         user_id: str,
-        session_id: str,
-    ) -> str:
-        clean_question = (
-            question.strip()
-        )
+        session_id: str | None = None,
+    ) -> AgentReply:
+        clean_question = question.strip()
+        clean_user_id = user_id.strip()
 
         if not clean_question:
             raise ValueError(
                 "Question cannot be empty."
             )
 
-        await self.ensure_session(
-            user_id=user_id,
-            session_id=session_id,
+        if not clean_user_id:
+            raise ValueError(
+                "User ID cannot be empty."
+            )
+
+        if (
+            session_id
+            and session_id.strip()
+        ):
+            thread_id = (
+                session_id.strip()
+            )
+        else:
+            thread_id = str(
+                uuid4()
+            )
+
+        langfuse_handler = (
+            create_langfuse_handler()
         )
 
-        message = types.Content(
-            role="user",
-
-            parts=[
-                types.Part(
-                    text=clean_question,
-                ),
+        config: RunnableConfig = {
+            "configurable": {
+                "thread_id": thread_id,
+                "user_id": clean_user_id,
+            },
+            "callbacks": [
+                langfuse_handler,
             ],
+            "run_name": (
+                "voice-ai-assistant-turn"
+            ),
+        }
+
+        with propagate_attributes(
+            trace_name=(
+                "Voice AI Assistant"
+            ),
+            user_id=clean_user_id,
+            session_id=thread_id,
+            tags=[
+                "langgraph",
+                "gemini",
+                "voice-ai-assistant",
+            ],
+            metadata={
+                "orchestrator": (
+                    "langgraph"
+                ),
+                "application": (
+                    "voice-ai-assistant"
+                ),
+            },
+        ):
+            result = (
+                await self.graph.ainvoke(
+                    {
+                        "messages": [
+                            HumanMessage(
+                                content=(
+                                    clean_question
+                                )
+                            )
+                        ]
+                    },
+                    config=config,
+                )
+            )
+
+        messages = result.get(
+            "messages",
+            [],
         )
 
-        final_response = ""
-
-        logger.info(
-            "Starting Master Agent request: "
-            "user_id=%s session_id=%s",
-            user_id,
-            session_id,
+        answer = (
+            self.extract_final_answer(
+                messages
+            )
         )
 
-        events = self.runner.run_async(
-            user_id=user_id,
-            session_id=session_id,
-            new_message=message,
+        if not answer:
+            raise RuntimeError(
+                "LangGraph completed without returning "
+                "a readable assistant response."
+            )
+
+        return AgentReply(
+            answer=answer,
+            session_id=thread_id,
         )
 
-        async for event in events:
-            if not event.is_final_response():
+    @classmethod
+    def extract_final_answer(
+        cls,
+        messages: list[Any],
+    ) -> str:
+        """
+        Return the latest completed AI answer.
+
+        AI messages containing unresolved tool calls
+        are skipped.
+        """
+
+        for message in reversed(
+            messages
+        ):
+            if not isinstance(
+                message,
+                AIMessage,
+            ):
                 continue
 
-            event_text = (
-                self.extract_text_from_event(
-                    event
-                )
+            tool_calls = getattr(
+                message,
+                "tool_calls",
+                None,
             )
 
-            if event_text:
-                final_response = (
-                    event_text
-                )
+            if tool_calls:
+                continue
 
-        if not final_response:
-            raise RuntimeError(
-                "The agent completed without "
-                "returning a text response."
+            text = cls.content_to_text(
+                message.content
             )
 
-        logger.info(
-            "Master Agent request completed."
-        )
+            if text:
+                return text
 
-        return final_response
+        return ""
 
+    @staticmethod
+    def content_to_text(
+        content: Any,
+    ) -> str:
+        """
+        Convert Gemini/LangChain message content
+        into plain text.
+        """
 
-    async def close(
-        self,
-    ) -> None:
-        close_method = getattr(
-            self.runner,
-            "close",
-            None,
-        )
-
-        if close_method is None:
-            return
-
-        result = close_method()
-
-        if asyncio.iscoroutine(
-            result
+        if isinstance(
+            content,
+            str,
         ):
-            await result
+            return content.strip()
+
+        if not isinstance(
+            content,
+            list,
+        ):
+            return str(
+                content
+            ).strip()
+
+        text_parts: list[str] = []
+
+        for block in content:
+            if isinstance(
+                block,
+                str,
+            ):
+                clean_block = (
+                    block.strip()
+                )
+
+                if clean_block:
+                    text_parts.append(
+                        clean_block
+                    )
+
+                continue
+
+            if not isinstance(
+                block,
+                dict,
+            ):
+                continue
+
+            text = block.get(
+                "text"
+            )
+
+            if (
+                isinstance(text, str)
+                and text.strip()
+            ):
+                text_parts.append(
+                    text.strip()
+                )
+
+        return "\n".join(
+            text_parts
+        ).strip()
 
 
-__all__ = [
-    "AgentRuntime",
-]
+agent_runtime = AgentRuntime()

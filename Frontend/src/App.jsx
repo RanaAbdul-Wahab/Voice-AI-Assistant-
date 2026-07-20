@@ -16,12 +16,6 @@ import "./App.css";
 
 const USER_ID = "abdul-wahab";
 
-/*
- * Voice-call tuning.
- *
- * Increase SILENCE_DURATION_MS if the call
- * interrupts you during short pauses.
- */
 const SILENCE_DURATION_MS = 1300;
 const MIN_RECORDING_DURATION_MS = 700;
 const MAX_RECORDING_DURATION_MS = 50_000;
@@ -56,7 +50,9 @@ function createMessage(role, text) {
 
 
 function getRecordingMimeType() {
-  if (typeof MediaRecorder === "undefined") {
+  if (
+    typeof MediaRecorder === "undefined"
+  ) {
     return "";
   }
 
@@ -114,9 +110,6 @@ function App() {
       ),
     ]);
 
-  /*
-   * This session belongs only to text chat.
-   */
   const [
     textSessionId,
     setTextSessionId,
@@ -173,13 +166,11 @@ function App() {
       );
     });
 
-
   /*
    * Text-chat references.
    */
   const messagesEndRef =
     useRef(null);
-
 
   /*
    * Voice-call references.
@@ -252,9 +243,6 @@ function App() {
   ]);
 
 
-  /*
-   * Voice-call timer.
-   */
   useEffect(() => {
     if (!callOpen) {
       setCallDuration(0);
@@ -286,9 +274,6 @@ function App() {
   }, [callOpen]);
 
 
-  /*
-   * Cleanup when React unmounts.
-   */
   useEffect(() => {
     return () => {
       callActiveRef.current =
@@ -398,7 +383,7 @@ function App() {
         analyserSourceRef.current
           .disconnect();
       } catch {
-        // Source may already be disconnected.
+        // The source may already be disconnected.
       }
     }
 
@@ -433,6 +418,29 @@ function App() {
 
     audioSourceRef.current =
       null;
+  }
+
+
+  /*
+   * Stops the current AI voice response,
+   * but keeps the voice call open.
+   *
+   * Stopping the AudioBufferSource triggers
+   * its onended callback. The active voice
+   * process then automatically returns to
+   * microphone listening.
+   */
+  function interruptAssistant() {
+    if (
+      !callActiveRef.current ||
+      callPhase !== "speaking"
+    ) {
+      return;
+    }
+
+    setCallPhase("resuming");
+
+    stopAssistantAudio();
   }
 
 
@@ -485,7 +493,15 @@ function App() {
     setCallPhase("speaking");
 
     await new Promise((resolve) => {
-      source.onended = () => {
+      let finished = false;
+
+      function finishPlayback() {
+        if (finished) {
+          return;
+        }
+
+        finished = true;
+
         if (
           audioSourceRef.current ===
           source
@@ -495,9 +511,16 @@ function App() {
         }
 
         resolve();
-      };
+      }
 
-      source.start(0);
+      source.onended =
+        finishPlayback;
+
+      try {
+        source.start(0);
+      } catch {
+        finishPlayback();
+      }
     });
   }
 
@@ -518,12 +541,6 @@ function App() {
   }
 
 
-  /*
-   * Standard text-chat submission.
-   *
-   * This calls /api/chat only.
-   * It never calls /api/tts.
-   */
   async function handleTextSubmit(
     event,
   ) {
@@ -617,9 +634,6 @@ function App() {
   }
 
 
-  /*
-   * Open the full-screen voice call.
-   */
   async function beginVoiceCall() {
     if (!microphoneSupported) {
       setError(
@@ -655,10 +669,6 @@ function App() {
     setCallOpen(true);
 
     try {
-      /*
-       * Unlock automatic audio playback while
-       * handling the user's microphone click.
-       */
       await unlockAudio();
 
       const stream =
@@ -752,11 +762,6 @@ function App() {
   }
 
 
-  /*
-   * Begin one automatic listening turn.
-   *
-   * Recording stops when silence is detected.
-   */
   async function startRecordingCycle(
     token,
   ) {
@@ -823,6 +828,7 @@ function App() {
       }
     };
 
+
     recorder.onerror = () => {
       cleanupRecordingDetection();
 
@@ -836,6 +842,7 @@ function App() {
         "Microphone recording failed.",
       );
     };
+
 
     recorder.onstop = () => {
       cleanupRecordingDetection();
@@ -885,12 +892,14 @@ function App() {
       );
     };
 
+
     recorder.start(250);
 
     const audioData =
       new Uint8Array(
         analyser.fftSize,
       );
+
 
     function finishCurrentTurn() {
       if (
@@ -991,16 +1000,13 @@ function App() {
         );
     }
 
+
     silenceFrameRef.current =
       window.requestAnimationFrame(
         monitorSilence,
       );
 
-    /*
-     * Chirp synchronous recognition is designed
-     * for short recordings. Restart listening
-     * if no speech is heard for too long.
-     */
+
     recordingTimeoutRef.current =
       window.setTimeout(
         () => {
@@ -1027,11 +1033,6 @@ function App() {
   }
 
 
-  /*
-   * Complete one speech-to-speech turn:
-   *
-   * STT → ADK → TTS → playback
-   */
   async function processVoiceTurn(
     audioBlob,
     token,
@@ -1120,10 +1121,8 @@ function App() {
         return;
       }
 
-      /*
-       * Automatically return to listening
-       * after the assistant finishes speaking.
-       */
+      setCallPhase("resuming");
+
       await delay(250);
 
       if (isCallActive(token)) {
@@ -1146,9 +1145,6 @@ function App() {
   }
 
 
-  /*
-   * Retry after a voice-call error.
-   */
   async function retryVoiceCall() {
     if (
       !callActiveRef.current
@@ -1167,9 +1163,6 @@ function App() {
   }
 
 
-  /*
-   * End the call and return to chatbot.
-   */
   function closeVoiceCall() {
     callActiveRef.current =
       false;
@@ -1252,6 +1245,9 @@ function App() {
     speaking:
       "AI is speaking…",
 
+    resuming:
+      "Returning to listening…",
+
     error:
       "Voice call paused",
 
@@ -1265,7 +1261,7 @@ function App() {
       "Please allow microphone access.",
 
     listening:
-      "Speak naturally. The call will respond when you stop speaking.",
+      "Speak naturally. The assistant will respond when you stop speaking.",
 
     transcribing:
       "Converting your voice into text.",
@@ -1277,7 +1273,10 @@ function App() {
       "Generating the spoken response.",
 
     speaking:
-      "You can continue after the assistant finishes.",
+      "Press Interrupt to stop the response and ask another question.",
+
+    resuming:
+      "The microphone will start listening again.",
 
     error:
       callError,
@@ -1365,7 +1364,7 @@ function App() {
               </strong>
 
               <small>
-                FastAPI · Vertex AI
+                FastAPI · LangGraph
               </small>
             </div>
           </div>
@@ -1670,6 +1669,25 @@ function App() {
 
 
           <footer className="voice-call-actions">
+            {callPhase ===
+              "speaking" && (
+              <button
+                type="button"
+                className="interrupt-button"
+                onClick={
+                  interruptAssistant
+                }
+                aria-label="Interrupt assistant"
+                title="Stop AI voice and continue speaking"
+              >
+                <span className="interrupt-icon">
+                  ■
+                </span>
+
+                Interrupt
+              </button>
+            )}
+
             <button
               type="button"
               className="hangup-button"
