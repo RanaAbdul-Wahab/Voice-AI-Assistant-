@@ -1,87 +1,296 @@
 # Voice AI Assistant
 
-A production-style multi-agent AI assistant built with **Google ADK**, **Vertex AI**, **FastAPI**, and **React**.
+An enterprise-style multimodal AI assistant supporting:
 
-The application supports two interaction styles from one chatbot interface:
-
-- **Text chat:** the user types a message and receives a text response.
-- **Voice call:** the user starts a full-screen speech-to-speech call. The system listens, detects silence, transcribes speech, generates an agent response, speaks the answer, and then listens again.
-
----
-
-## Features
-
-### Text chatbot
-
-- Standard chatbot conversation UI
-- Text input with Enter-to-send
-- Text-only assistant responses
-- Conversation sessions
-- New-conversation option
-- Responsive desktop and mobile layout
-
-### Speech-to-speech voice call
-
-- Full-screen voice-call interface
-- Automatic microphone recording
-- Silence detection
-- Google Cloud Speech-to-Text V2 with Chirp 3
-- Multi-agent response generation
-- Gemini text-to-speech
-- Automatic audio playback
-- Continuous turn-based conversation
-- End-call and close controls
-- Voice-call content is kept separate from text-chat messages
-
-### Multi-agent system
-
-- **Master Agent:** routes requests to the correct specialist
-- **RAG Agent:** answers questions from internal company documents
-- **Search Agent:** handles current public-information requests
-- Shared Google ADK runner and session service
+- Text-based chatbot conversations
+- Continuous speech-to-speech voice calls
+- Internal company-document retrieval using Vertex AI RAG
+- Current-information web search
+- LangGraph-based agent orchestration
+- Gemini LLM tool calling
+- Short-term conversational memory
+- Langfuse tracing and observability
+- Voice interruption without ending the call
 
 ---
 
-## Architecture
+## Overview
+
+The Voice AI Assistant provides two interaction experiences through one React application.
+
+### Text chat
+
+The user types a message and receives a text-only response.
 
 ```text
-                         ┌─────────────────────┐
-                         │    React Frontend   │
-                         └──────────┬──────────┘
-                                    │
-                    ┌───────────────┴───────────────┐
-                    │                               │
-             Text message                    Voice call
-                    │                               │
-                    │                        Browser microphone
-                    │                               │
-                    │                         POST /api/stt
-                    │                               │
-                    │                     Chirp 3 transcription
-                    │                               │
-                    └───────────────┬───────────────┘
-                                    │
-                              POST /api/chat
-                                    │
-                         FastAPI + Google ADK
-                                    │
-                              Master Agent
-                           ┌────────┴────────┐
-                           │                 │
-                       RAG Agent        Search Agent
-                           │                 │
-                     Vertex AI RAG      Web search
-                           └────────┬────────┘
-                                    │
-                              Text response
-                           ┌────────┴────────┐
-                           │                 │
-                    Text-chat display   POST /api/tts
-                                             │
-                                      Gemini TTS audio
-                                             │
-                                      Browser playback
+User text
+   ↓
+FastAPI
+   ↓
+LangGraph
+   ↓
+Gemini Assistant
+   ↓
+Text response
 ```
+
+Typed chatbot responses are not spoken.
+
+### Voice call
+
+The user clicks the microphone button to open a full-screen voice-call interface.
+
+```text
+Microphone
+   ↓
+Google Speech-to-Text
+   ↓
+LangGraph Assistant
+   ↓
+Gemini response
+   ↓
+Gemini Text-to-Speech
+   ↓
+Browser audio playback
+   ↓
+Listen for the next question
+```
+
+Voice-call transcripts and responses are not displayed in the normal chatbot.
+
+---
+
+## Main Features
+
+### LangGraph orchestration
+
+The assistant uses LangGraph as its orchestration framework.
+
+```text
+START
+  ↓
+Assistant
+  ├── Final answer ─────────────→ END
+  │
+  └── Tool call
+          ↓
+        Tools
+          ↓
+      Assistant
+          ↺
+```
+
+The Assistant node uses Gemini to decide whether it should:
+
+- Answer directly
+- Search internal company documents
+- Search the public web
+- Call another available tool
+
+After a tool returns its result, execution returns to the Assistant node so Gemini can prepare the final answer.
+
+---
+
+### Gemini Assistant node
+
+The Assistant node uses the Gemini Developer API through:
+
+```text
+GEMINI_API_KEY
+```
+
+The Gemini model is responsible for:
+
+- Understanding user questions
+- Maintaining conversational context
+- Selecting the correct tool
+- Reading tool results
+- Producing the final answer
+
+The API key remains in the backend environment and is never exposed to the React frontend.
+
+---
+
+### Internal document retrieval
+
+The assistant can answer questions from internal company documents using Vertex AI RAG.
+
+Example document categories include:
+
+- TADA policy
+- International travel policy
+- Maternity policy
+- OPD policy
+- Leave and reimbursement policies
+
+Example request:
+
+```text
+What food and transportation expenses are covered under the TADA policy?
+```
+
+Expected graph flow:
+
+```text
+Assistant
+   ↓
+search_company_documents
+   ↓
+Vertex AI RAG
+   ↓
+Relevant policy passages
+   ↓
+Assistant
+   ↓
+Final grounded answer
+```
+
+---
+
+### Public web search
+
+The assistant can use a web-search tool for recent or changing public information.
+
+Examples:
+
+```text
+What are the latest Vertex AI updates?
+
+Who currently holds a particular public position?
+
+What recent changes were made to a software framework?
+```
+
+Web search is separate from company-document RAG.
+
+---
+
+### Continuous voice conversations
+
+The voice-call interface supports:
+
+- Full-screen call experience
+- Automatic microphone recording
+- Silence detection
+- Speech transcription
+- Agent response generation
+- Text-to-speech generation
+- Automatic audio playback
+- Automatic return to listening mode
+- Call timer
+- End-call control
+
+The voice conversation remains active until the user closes or ends the call.
+
+---
+
+### Voice interruption
+
+While the assistant is speaking, the user can press **Interrupt**.
+
+```text
+Assistant is speaking
+   ↓
+User presses Interrupt
+   ↓
+Current audio stops
+   ↓
+Voice call remains open
+   ↓
+Microphone starts listening again
+   ↓
+User asks another question
+```
+
+Interrupting the assistant does not:
+
+- Close the voice-call screen
+- End the conversation session
+- Stop the microphone permanently
+- Delete the previous conversational context
+
+---
+
+### Conversational memory
+
+LangGraph currently uses:
+
+```python
+InMemorySaver
+```
+
+Each conversation is associated with a LangGraph:
+
+```text
+thread_id
+```
+
+The frontend sends the backend session ID, which is used as the LangGraph thread ID.
+
+This allows contextual follow-up questions during the same session.
+
+Example:
+
+```text
+User: What does the TADA policy say about meals?
+
+Assistant: The policy states...
+
+User: What about transportation?
+
+Assistant: Transportation under the same policy...
+```
+
+#### Current memory limitation
+
+The current memory is stored in backend RAM.
+
+It survives:
+
+- Multiple requests using the same session ID
+- Follow-up questions
+- Continued voice-call turns
+
+It does not survive:
+
+- Backend restarts
+- Uvicorn reloads
+- Switching to a new session ID
+
+A persistent PostgreSQL or SQLite checkpointer can be integrated later.
+
+---
+
+### Langfuse observability
+
+Langfuse is integrated through the LangChain callback handler.
+
+It traces:
+
+- LangGraph executions
+- Gemini generations
+- Tool selections
+- RAG tool calls
+- Web-search calls
+- Inputs and outputs
+- Execution latency
+- Token usage when available
+- Errors and failed operations
+
+A typical trace may look like:
+
+```text
+Voice AI Assistant
+└── LangGraph turn
+    ├── Assistant node
+    │   └── Gemini generation
+    ├── Tools node
+    │   └── search_company_documents
+    └── Assistant node
+        └── Final Gemini response
+```
+
+Langfuse is used for monitoring and debugging. It is not the main chat-history database.
 
 ---
 
@@ -92,13 +301,17 @@ The application supports two interaction styles from one chatbot interface:
 - Python 3.12
 - FastAPI
 - Uvicorn
-- Google Agent Development Kit
+- LangGraph
+- LangChain
+- LangChain Google Generative AI
+- Gemini Developer API
+- Google Gen AI SDK
 - Vertex AI
-- Gemini 2.5 Flash
 - Vertex AI RAG
 - Google Cloud Speech-to-Text V2
 - Chirp 3
-- Gemini 2.5 Flash TTS
+- Gemini Text-to-Speech
+- Langfuse
 
 ### Frontend
 
@@ -109,26 +322,42 @@ The application supports two interaction styles from one chatbot interface:
 - Web Audio API
 - CSS
 
+### Development and source control
+
+- Git
+- GitHub
+- Python virtual environments
+- Environment-variable configuration
+
 ---
 
 ## Project Structure
 
 ```text
-Demo_project/
+AI voice assitant/
 │
 ├── Backend/
 │   ├── app/
-│   │   ├── agents/
-│   │   │   ├── master_agent.py
-│   │   │   ├── rag_agent.py
-│   │   │   └── search_agent.py
+│   │   ├── graph/
+│   │   │   ├── __init__.py
+│   │   │   └── assistant_graph.py
+│   │   │
+│   │   ├── tools/
+│   │   │   ├── __init__.py
+│   │   │   ├── rag_tool.py
+│   │   │   └── search_tool.py
 │   │   │
 │   │   ├── routers/
+│   │   │   ├── chat.py
 │   │   │   └── speech.py
 │   │   │
 │   │   ├── services/
 │   │   │   ├── speech_to_text.py
 │   │   │   └── text_to_speech.py
+│   │   │
+│   │   ├── observability/
+│   │   │   ├── __init__.py
+│   │   │   └── langfuse_tracing.py
 │   │   │
 │   │   ├── agent_runtime.py
 │   │   ├── config.py
@@ -136,7 +365,9 @@ Demo_project/
 │   │   └── schemas.py
 │   │
 │   ├── .env
-│   └── requirements.txt
+│   ├── .env.example
+│   ├── requirements.txt
+│   └── test_langfuse.py
 │
 ├── Frontend/
 │   ├── src/
@@ -157,94 +388,175 @@ Demo_project/
 
 ---
 
-## Prerequisites
+## Backend API Endpoints
 
-Install the following before running the project:
+### Health check
 
-- Python 3.12
-- Node.js and npm
-- Git
-- Google Cloud CLI
-- A Google Cloud project with billing enabled
+```http
+GET /health
+```
 
-The following Google Cloud services must be available in the project:
+Example response:
 
-- Vertex AI API
-- Speech-to-Text API
-- Text-to-Speech API
-- Vertex AI RAG resources
+```json
+{
+  "status": "ok",
+  "orchestrator": "langgraph",
+  "model": "gemini-2.5-flash"
+}
+```
 
 ---
 
-## Google Cloud Authentication
+### Chat endpoint
 
-Authenticate Application Default Credentials:
-
-```cmd
-gcloud auth application-default login
+```http
+POST /api/chat
+Content-Type: application/json
 ```
 
-Set the active project:
+Example request:
 
-```cmd
-gcloud config set project demoproject-502507
+```json
+{
+  "question": "What does the TADA policy say about food expenses?",
+  "user_id": "abdul-wahab",
+  "session_id": null
+}
 ```
 
-Confirm authentication:
+Example response:
 
-```cmd
-gcloud auth application-default print-access-token
+```json
+{
+  "answer": "According to the retrieved company policy...",
+  "agent": "langgraph_assistant",
+  "session_id": "generated-thread-id"
+}
 ```
 
-Do not commit Google credentials, access tokens, service-account keys, or `.env` files.
+Reuse the returned `session_id` for follow-up questions.
 
 ---
 
-## Backend Environment Variables
+### Speech-to-text endpoint
+
+```http
+POST /api/stt
+Content-Type: multipart/form-data
+```
+
+Form fields:
+
+```text
+audio
+language_code
+```
+
+Example language code:
+
+```text
+en-IN
+```
+
+Example response:
+
+```json
+{
+  "transcript": "What is the company travel policy?",
+  "language_code": "en-IN"
+}
+```
+
+---
+
+### Text-to-speech endpoint
+
+```http
+POST /api/tts
+Content-Type: application/json
+```
+
+Example request:
+
+```json
+{
+  "text": "Here is the answer to your question.",
+  "language_code": "en-IN"
+}
+```
+
+The endpoint returns audio data, which is played through the Web Audio API.
+
+---
+
+## Environment Configuration
 
 Create:
 
 ```text
-Backend\.env
+Backend/.env
 ```
 
 Example:
 
 ```env
-GOOGLE_CLOUD_PROJECT=demoproject-502507
-GOOGLE_CLOUD_LOCATION=europe-west3
-GOOGLE_GENAI_USE_VERTEXAI=TRUE
-
+# Gemini Assistant node
+GEMINI_API_KEY=your-gemini-api-key
 MODEL_ID=gemini-2.5-flash
-ADK_APP_NAME=voice_ai_assistant
 
-RAG_CORPUS_NAME=projects/YOUR_PROJECT_NUMBER/locations/europe-west3/ragCorpora/YOUR_CORPUS_ID
+# Google Cloud
+GOOGLE_CLOUD_PROJECT=your-google-cloud-project
+GOOGLE_CLOUD_LOCATION=europe-west3
+
+# Vertex AI RAG
+RAG_CORPUS_NAME=projects/PROJECT_NUMBER/locations/europe-west3/ragCorpora/CORPUS_ID
 RAG_TOP_K=5
 RAG_DISTANCE_THRESHOLD=0.6
 
+# Web search
+SEARCH_MODEL_ID=gemini-2.5-flash
+SEARCH_LOCATION=global
+
+# Speech-to-Text
 STT_LOCATION=eu
 STT_MODEL=chirp_3
 STT_LANGUAGE_CODE=en-IN
 
+# Text-to-Speech
 TTS_LOCATION=global
 TTS_MODEL=gemini-2.5-flash-tts
 TTS_VOICE_NAME=Kore
 TTS_LANGUAGE_CODE=en-IN
 TTS_MAX_RESPONSE_BYTES=1800
 
+# Langfuse
+LANGFUSE_PUBLIC_KEY=your-langfuse-public-key
+LANGFUSE_SECRET_KEY=your-langfuse-secret-key
+LANGFUSE_BASE_URL=https://us.cloud.langfuse.com
+LANGFUSE_TRACING_ENVIRONMENT=development
+LANGFUSE_DEBUG=False
+
+# Frontend
 FRONTEND_ORIGIN=http://localhost:5173
 ```
 
-Replace the RAG corpus placeholder with your actual corpus resource name.
+For a Langfuse EU-region project, use:
+
+```env
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+```
+
+Do not commit the real `.env` file.
 
 ---
 
-## Frontend Environment Variables
+## Frontend Environment
 
 Create:
 
 ```text
-Frontend\.env
+Frontend/.env
 ```
 
 Add:
@@ -257,46 +569,62 @@ Restart Vite after changing frontend environment variables.
 
 ---
 
-## Backend Setup
+## Installation
 
-Open **Command Prompt** and go to the project root:
-
-```cmd
-cd /d "C:\Users\abdul.wahab\Desktop\Demo_project"
-```
-
-Create a virtual environment when one does not already exist:
+### 1. Open the backend directory
 
 ```cmd
-python -m venv .venv
+cd /d "C:\Users\abdul.wahab\Desktop\AI voice assitant\Backend"
 ```
 
-Activate it:
+### 2. Create the virtual environment
+
+```cmd
+py -m venv .venv
+```
+
+### 3. Activate the environment
 
 ```cmd
 .venv\Scripts\activate
 ```
 
-Install backend dependencies:
+### 4. Install dependencies
 
 ```cmd
-pip install -r Backend\requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-Start the FastAPI server:
+### 5. Authenticate Google Cloud
 
 ```cmd
-cd Backend
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+gcloud auth application-default login
 ```
 
-Backend URL:
+Set the project:
+
+```cmd
+gcloud config set project your-google-cloud-project
+```
+
+---
+
+## Running the Backend
+
+From the Backend folder:
+
+```cmd
+.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Backend address:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-Interactive API documentation:
+API documentation:
 
 ```text
 http://127.0.0.1:8000/docs
@@ -304,15 +632,15 @@ http://127.0.0.1:8000/docs
 
 ---
 
-## Frontend Setup
+## Running the Frontend
 
-Open a second Command Prompt window:
+Open a second CMD window:
 
 ```cmd
-cd /d "C:\Users\abdul.wahab\Desktop\Demo_project\Frontend"
+cd /d "C:\Users\abdul.wahab\Desktop\AI voice assitant\Frontend"
 ```
 
-Install dependencies:
+Install packages:
 
 ```cmd
 npm install
@@ -324,7 +652,7 @@ Start Vite:
 npm run dev
 ```
 
-Frontend URL:
+Frontend address:
 
 ```text
 http://localhost:5173
@@ -332,258 +660,151 @@ http://localhost:5173
 
 ---
 
-## API Endpoints
-
-### Health check
-
-```http
-GET /health
-```
-
-Checks whether the backend is running.
-
-### Agent chat
-
-```http
-POST /api/chat
-Content-Type: application/json
-```
-
-Example body:
-
-```json
-{
-  "question": "What is the maternity policy?",
-  "user_id": "user-123",
-  "session_id": null
-}
-```
-
-Example response:
-
-```json
-{
-  "answer": "The policy states...",
-  "agent": "master_agent",
-  "session_id": "generated-session-id"
-}
-```
-
-### Speech-to-text
-
-```http
-POST /api/stt
-Content-Type: multipart/form-data
-```
-
-Form fields:
-
-```text
-audio          microphone recording
-language_code  en-IN
-```
-
-Example response:
-
-```json
-{
-  "transcript": "What is the leave policy?",
-  "language_code": "en-IN"
-}
-```
-
-### Text-to-speech
-
-```http
-POST /api/tts
-Content-Type: application/json
-```
-
-Example body:
-
-```json
-{
-  "text": "Here is the answer.",
-  "language_code": "en-IN"
-}
-```
-
-Returns an audio response that the frontend plays through the Web Audio API.
-
----
-
 ## Application Behaviour
 
-### Typed message flow
+### Typed interaction
 
 ```text
-User types a message
-        ↓
+Typed message
+   ↓
 POST /api/chat
-        ↓
-Assistant text is displayed
+   ↓
+LangGraph
+   ↓
+Text response displayed
 ```
 
-Typed messages do not call `/api/tts`.
+The frontend does not call `/api/tts` for typed chatbot messages.
 
-### Voice-call flow
+### Voice interaction
 
 ```text
-User starts voice call
-        ↓
-Browser listens
-        ↓
-Silence is detected
-        ↓
+Voice recording
+   ↓
 POST /api/stt
-        ↓
+   ↓
 POST /api/chat
-        ↓
+   ↓
 POST /api/tts
-        ↓
-Assistant audio plays
-        ↓
-Browser listens again
+   ↓
+Audio playback
+   ↓
+Automatic listening resumes
 ```
 
-Voice-call messages are not added to the normal chatbot history.
-
----
-
-## Sessions
-
-The backend currently uses Google ADK's:
-
-```python
-InMemorySessionService
-```
-
-This preserves conversational context while the backend process remains active.
-
-Current limitations:
-
-- Sessions are lost after a backend restart.
-- The current frontend demo uses a fixed user ID.
-- Voice calls and text chat can use separate session IDs.
-
-For production, replace the fixed user ID with an authenticated user ID and use a persistent session service.
-
----
-
-## Testing
-
-### Test text chat
-
-Send:
+### Voice interruption
 
 ```text
-Hello
-```
-
-Expected backend request:
-
-```text
-POST /api/chat 200 OK
-```
-
-There should be no TTS request for typed messages.
-
-### Test voice call
-
-1. Click the microphone button.
-2. Allow microphone access.
-3. Speak naturally.
-4. Pause after finishing your sentence.
-5. Wait for the assistant to respond.
-6. Continue speaking after the assistant finishes.
-7. Press **End call** to return to the chatbot.
-
-Expected backend sequence:
-
-```text
-POST /api/stt  200 OK
-POST /api/chat 200 OK
-POST /api/tts  200 OK
+AI audio is playing
+   ↓
+User clicks Interrupt
+   ↓
+AudioBufferSource stops
+   ↓
+The call remains active
+   ↓
+Listening resumes
 ```
 
 ---
 
-## Common Errors
+## Chat History and Storage
 
-### `422 Unprocessable Entity` on `/api/stt`
+The application currently stores conversational information in multiple places.
 
-The frontend multipart field names must match the FastAPI route:
+### React state
 
-```javascript
-formData.append("audio", audioBlob, filename);
-formData.append("language_code", languageCode);
+Visible chatbot messages are stored temporarily in React state.
+
+They disappear when the frontend is refreshed or closed.
+
+### Browser local storage
+
+The browser saves the text-chat session ID:
+
+```text
+text_chat_session_id
 ```
 
-Do not manually set the multipart `Content-Type` header.
+The complete visible message history is not currently saved in browser storage.
 
-### Import error for `transcribe_audio`
+### LangGraph memory
 
-The STT service exposes a class:
+LangGraph stores the graph state using `InMemorySaver`.
 
-```python
-SpeechToTextService
+This includes:
+
+- Human messages
+- Gemini responses
+- Tool calls
+- Tool outputs
+- Final assistant messages
+
+The data is stored in backend RAM and is lost when the backend restarts.
+
+### Langfuse
+
+Langfuse may store traced inputs, outputs, tool activity, timing information, and model-generation details.
+
+It is intended for observability rather than permanent application chat history.
+
+---
+
+## Testing RAG Retrieval
+
+Test direct retrieval separately from the complete LangGraph flow.
+
+Example questions:
+
+```text
+What food expenses are allowed under the TADA policy?
+
+How much can an employee claim for meals during official travel?
+
+What does the maternity policy say about maternity leave?
+
+What is the current price of Bitcoin?
 ```
 
-and a method:
+Expected behaviour:
 
-```python
-transcribe(audio_content, language_code)
-```
+| Question type | Expected result |
+|---|---|
+| TADA question | TADA policy passages |
+| Paraphrased TADA question | Similar relevant passages |
+| Maternity question | Maternity policy passages |
+| Unrelated current question | No misleading internal policy passage |
 
-The speech router must instantiate the class rather than import a nonexistent function.
+Check:
 
-### Import error for `TextToSpeechRequest`
+- Correct source document
+- Correct passage
+- Presence of the requested information
+- Successful paraphrase retrieval
+- Rejection of unrelated queries
 
-Confirm that `Backend/app/schemas.py` includes:
+---
 
-```python
-class TextToSpeechRequest(BaseModel):
-    text: str
-    language_code: str = "en-IN"
-```
-
-### Git push rejected with `fetch first`
+## Testing Langfuse
 
 Run:
 
 ```cmd
-git fetch origin
-git rebase origin/main
-git push -u origin main
+.venv\Scripts\python.exe test_langfuse.py
 ```
 
-Resolve any conflicts before continuing the rebase.
-
-### Git is not recognized
-
-Locate Git:
-
-```cmd
-where git
-```
-
-A common installation path is:
+Expected:
 
 ```text
-C:\Users\abdul.wahab\AppData\Local\Programs\Git\cmd\git.exe
+Langfuse authentication successful.
 ```
 
-Restart VS Code after installing Git so new terminals receive the updated PATH.
+A `401 Unauthorized` error usually means:
 
-### RAG deprecation warning
-
-The application may display a warning that:
-
-```text
-vertexai.preview.rag
-```
-
-is deprecated. It is a warning rather than a startup failure. A future version should migrate the RAG integration to the Agent Platform client.
+- The public and secret keys do not match
+- The keys belong to another Langfuse project
+- The Langfuse region is incorrect
+- The environment-variable names are wrong
 
 ---
 
@@ -592,11 +813,12 @@ is deprecated. It is a warning rather than a startup failure. A future version s
 Never commit:
 
 - `.env` files
-- API keys
+- Gemini API keys
+- Langfuse secret keys
+- Google Cloud credentials
 - Access tokens
 - Service-account JSON files
 - Database passwords
-- Google Cloud credentials
 - Virtual environments
 - `node_modules`
 - Temporary audio recordings
@@ -628,9 +850,12 @@ Frontend/dist/
 *.wav
 *.webm
 *.mp3
+
+service-account*.json
+credentials*.json
 ```
 
-Review staged files before committing:
+Before every commit, review staged files:
 
 ```cmd
 git diff --cached --name-only
@@ -640,62 +865,56 @@ git diff --cached --name-only
 
 ## Current Limitations
 
-- Voice communication is turn-based rather than true bidirectional streaming.
-- Speech recognition begins processing after silence is detected.
-- Sessions are stored in memory.
-- Authentication is not yet integrated.
-- The demo uses a fixed user ID.
-- Long-term user memory is not yet implemented.
-- RAG currently uses a deprecated preview module.
+- Voice communication is turn-based rather than fully bidirectional streaming.
+- Silence detection is handled in the browser.
+- LangGraph checkpoints are stored in memory.
+- Visible chat messages are not restored after frontend refresh.
+- User authentication is not currently implemented.
+- The frontend currently uses a fixed development user ID.
+- Voice transcripts are intentionally hidden from the normal chat.
+- Long-term cross-session user memory is not yet implemented.
 
 ---
 
 ## Planned Improvements
 
-- Persistent Google ADK sessions
-- Long-term user memory
+- PostgreSQL LangGraph checkpointer
+- Persistent conversation history
 - User authentication
+- Dynamic authenticated user IDs
+- Conversation list and chat-history restoration
+- Long-term user memory
 - Streaming speech-to-text
-- Streaming Gemini voice responses
-- Voice interruption and barge-in
+- Streaming text-to-speech
+- Automatic spoken barge-in detection
+- Advanced voice activity detection
 - MCP tool integrations
-- Google Calendar and Drive tools
-- HR and leave-management integrations
-- Production database storage
-- Structured logging and monitoring
-- Agent tracing and evaluation
-- Migration from `vertexai.preview.rag` to Agent Platform
+- Calendar and Drive integrations
+- HR and leave-management tools
+- Prompt and RAG evaluations
+- Production deployment
+- Sensitive-data redaction before tracing
 
 ---
 
-## MCP Expansion
+## Development Summary
 
-Model Context Protocol can later connect the assistant to external business tools such as:
+This project demonstrates:
 
-- Google Calendar
-- Google Drive
-- Jira
-- HR systems
-- Leave-management systems
-- Internal APIs
-- Databases
-
-MCP should be added in the backend agent/tool layer. It does not replace Google ADK, STT, TTS, RAG, or memory.
-
----
-
-## License
-
-Add the appropriate license for your organization before publishing or distributing the project.
+- Multi-agent and tool-based AI architecture
+- LangGraph conditional routing
+- Gemini tool calling
+- Enterprise RAG implementation
+- Speech-to-speech AI interaction
+- Frontend voice-call state management
+- Voice interruption and call continuity
+- Short-term conversational memory
+- LLM observability using Langfuse
+- Secure backend API-key management
+- Modular FastAPI and React development
 
 ---
 
 ## Author
 
 **Rana Abdul Wahab**
-
-Repository:
-
-```text
-https://github.com/RanaAbdul-Wahab/Voice-AI-Assistant-.git
-```
