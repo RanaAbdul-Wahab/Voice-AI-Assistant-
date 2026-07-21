@@ -6,7 +6,7 @@ It supports user accounts, persistent per-user conversation history, and an agen
 
 ---
 
-## Features
+### Public web search
 
 ### Assistant
 - **Text chat** with Markdown-rendered responses (links, lists, code).
@@ -35,7 +35,15 @@ It supports user accounts, persistent per-user conversation history, and an agen
 
 ---
 
-## Architecture
+### Conversational memory
+
+LangGraph currently uses:
+
+```python
+InMemorySaver
+```
+
+Each conversation is associated with a LangGraph:
 
 ```text
                  React + Vite (frontend)
@@ -117,7 +125,7 @@ Frontend/
 
 ---
 
-## Prerequisites
+## Backend API Endpoints
 
 - Python 3.12, Node.js + npm, Git
 - Google Cloud CLI, and a Google Cloud project with **billing enabled**
@@ -170,6 +178,11 @@ RAG_CORPUS_NAME=projects/PROJECT_NUMBER/locations/REGION/ragCorpora/CORPUS_ID
 RAG_TOP_K=3
 RAG_DISTANCE_THRESHOLD=0.5
 
+# Web search
+SEARCH_MODEL_ID=gemini-2.5-flash
+SEARCH_LOCATION=global
+
+# Speech-to-Text
 STT_LOCATION=eu
 STT_MODEL=chirp_3
 TTS_LOCATION=global
