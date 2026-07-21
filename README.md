@@ -246,13 +246,6 @@ Never commit secrets. The following are git-ignored and must stay local (or move
 
 ---
 
-## Deployment (summary)
-
-- **Backend → Cloud Run** (containerized), using a service account with the *Vertex AI User* role and secrets from **Secret Manager**.
-- **Frontend → Firebase Hosting** (or a static bucket), built with the deployed `VITE_API_BASE_URL`.
-- **Database →** migrate SQLite to **Cloud SQL** (Cloud Run's filesystem is ephemeral).
-- Set `FRONTEND_ORIGIN` (backend) and `VITE_API_BASE_URL` (frontend) to the deployed URLs.
-
 ---
 
 ## Author
