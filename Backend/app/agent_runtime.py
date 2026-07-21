@@ -1,3 +1,5 @@
+import asyncio
+
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
@@ -18,6 +20,26 @@ from app.graphs import assistant_graph
 from app.observability import (
     create_langfuse_handler,
 )
+
+
+class AssistantBusyError(Exception):
+    """
+    Raised when the model is rate-limited (HTTP 429 / RESOURCE_EXHAUSTED)
+    even after we retried with backoff. The API layer turns this into a
+    friendly 429 response instead of a raw error.
+    """
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """Detect a Vertex AI 429 / quota error from its message text."""
+
+    text = str(exc).lower()
+
+    return (
+        "429" in text
+        or "resource_exhausted" in text
+        or "resource exhausted" in text
+    )
 
 
 @dataclass(frozen=True)
@@ -90,7 +112,7 @@ class AgentRuntime:
 
         with propagate_attributes(
             trace_name=(
-                "Voice AI Assistant"
+                "Aria"
             ),
             user_id=clean_user_id,
             session_id=thread_id,
@@ -108,19 +130,9 @@ class AgentRuntime:
                 ),
             },
         ):
-            result = (
-                await self.graph.ainvoke(
-                    {
-                        "messages": [
-                            HumanMessage(
-                                content=(
-                                    clean_question
-                                )
-                            )
-                        ]
-                    },
-                    config=config,
-                )
+            result = await self._invoke_with_retry(
+                clean_question,
+                config,
             )
 
         messages = result.get(
@@ -144,6 +156,50 @@ class AgentRuntime:
             answer=answer,
             session_id=thread_id,
         )
+
+    async def _invoke_with_retry(
+        self,
+        question: str,
+        config: RunnableConfig,
+    ) -> dict:
+        """
+        Run the graph, retrying transient rate-limit (429) errors with
+        increasing backoff. If still limited after every attempt, raise
+        AssistantBusyError for the API layer to turn into a clean message.
+        """
+
+        # Waits BEFORE the 2nd and 3rd attempts (3 attempts total).
+        backoffs = [3.0, 6.0]
+        attempts = len(backoffs) + 1
+
+        for attempt in range(attempts):
+            try:
+                return await self.graph.ainvoke(
+                    {
+                        "messages": [
+                            HumanMessage(
+                                content=question,
+                            )
+                        ]
+                    },
+                    config=config,
+                )
+
+            except Exception as exc:
+                # A real bug should fail fast — only retry rate limits.
+                if not _is_rate_limit_error(exc):
+                    raise
+
+                # Out of retries -> surface a clean "busy" signal.
+                if attempt == attempts - 1:
+                    raise AssistantBusyError(
+                        "The AI service is temporarily overloaded.",
+                    ) from exc
+
+                # Otherwise wait, then try again.
+                await asyncio.sleep(
+                    backoffs[attempt],
+                )
 
     @classmethod
     def extract_final_answer(

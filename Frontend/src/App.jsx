@@ -5,21 +5,87 @@ import {
 } from "react";
 
 import {
-  checkBackendHealth,
+  getConversationMessages,
+  getConversations,
+  getMe,
+  getToken,
+  logout,
   sendMessage,
   synthesizeSpeech,
   transcribeAudio,
 } from "./services/api";
 
+import AuthScreen from "./components/AuthScreen";
+import CopyButton from "./components/CopyButton";
+import MessageMarkdown from "./components/MessageMarkdown";
+import ResetPasswordScreen from "./components/ResetPasswordScreen";
+
 import "./App.css";
 
-
-const USER_ID = "abdul-wahab";
 
 const SILENCE_DURATION_MS = 1300;
 const MIN_RECORDING_DURATION_MS = 700;
 const MAX_RECORDING_DURATION_MS = 50_000;
 const SPEECH_THRESHOLD = 0.018;
+
+
+/*
+ * Suggested starter prompts shown on the welcome screen.
+ *
+ * `icon` is one of the keys handled by <PromptIcon> below.
+ * Clicking a card sends `text` straight to the assistant.
+ */
+const SUGGESTED_PROMPTS = [
+  {
+    icon: "document",
+    title: "Summarize the maternity policy",
+    text: "Summarize our company maternity leave policy.",
+  },
+  {
+    icon: "document",
+    title: "Travel & TADA reimbursement",
+    text: "What are the travel and TADA reimbursement rules?",
+  },
+  {
+    icon: "search",
+    title: "Latest AI news",
+    text: "What are the latest developments in AI this week?",
+  },
+  {
+    icon: "edit",
+    title: "Draft an out-of-office email",
+    text: "Draft a professional out-of-office email for a one-week leave.",
+  },
+];
+
+
+function PromptIcon({ name }) {
+  if (name === "search") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" />
+        <path d="m21 21-4.3-4.3" />
+      </svg>
+    );
+  }
+
+  if (name === "edit") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5" />
+      <path d="M9 13h6M9 17h6" />
+    </svg>
+  );
+}
 
 
 function createId() {
@@ -36,6 +102,28 @@ function getCurrentTime() {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date());
+}
+
+
+// Turn a stored SQLite timestamp ("2026-07-21 05:03:56", UTC) into a
+// local HH:MM string. Falls back to "" if it can't be parsed.
+function formatStoredTime(value) {
+  if (!value) {
+    return "";
+  }
+
+  const parsed = new Date(
+    value.replace(" ", "T") + "Z",
+  );
+
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
 }
 
 
@@ -99,16 +187,39 @@ function delay(milliseconds) {
 
 
 function App() {
+  /*
+   * Auth state.
+   *   authStatus: "checking" (still verifying) | "authed" | "guest"
+   *   currentUser: { user_id, email } once logged in, else null
+   */
+  const [authStatus, setAuthStatus] =
+    useState("checking");
+
+  const [currentUser, setCurrentUser] =
+    useState(null);
+
+  // Saved conversations (sidebar list) + which one is open.
+  const [conversations, setConversations] =
+    useState([]);
+
+  const [
+    activeConversationId,
+    setActiveConversationId,
+  ] = useState(null);
+
+  // If the app was opened from a reset link (?reset_token=...), grab it.
+  const [resetToken, setResetToken] =
+    useState(() =>
+      new URLSearchParams(
+        window.location.search,
+      ).get("reset_token") || "",
+    );
+
   const [question, setQuestion] =
     useState("");
 
   const [messages, setMessages] =
-    useState([
-      createMessage(
-        "assistant",
-        "Hello! Type a message or start a voice call.",
-      ),
-    ]);
+    useState([]);
 
   const [
     textSessionId,
@@ -120,11 +231,6 @@ function App() {
       ) || ""
     );
   });
-
-  const [
-    backendStatus,
-    setBackendStatus,
-  ] = useState("checking");
 
   const [
     languageCode,
@@ -212,23 +318,46 @@ function App() {
     useRef(null);
 
 
+  /*
+   * On startup, decide if we're already logged in.
+   * If a token exists, ask the backend (getMe) whether it's still valid.
+   */
   useEffect(() => {
-    async function testBackend() {
-      try {
-        await checkBackendHealth();
+    async function restoreSession() {
+      if (!getToken()) {
+        setAuthStatus("guest");
+        return;
+      }
 
-        setBackendStatus(
-          "connected",
-        );
+      try {
+        const user = await getMe();
+
+        setCurrentUser({
+          user_id: user.user_id,
+          email: user.email,
+        });
+
+        setAuthStatus("authed");
       } catch {
-        setBackendStatus(
-          "disconnected",
-        );
+        // Token missing / expired / invalid -> treat as logged out.
+        logout();
+        setCurrentUser(null);
+        setAuthStatus("guest");
       }
     }
 
-    void testBackend();
+    void restoreSession();
   }, []);
+
+
+  // Once logged in, load the sidebar's list of saved conversations.
+  useEffect(() => {
+    if (authStatus !== "authed") {
+      return;
+    }
+
+    void refreshConversations();
+  }, [authStatus]);
 
 
   useEffect(() => {
@@ -541,13 +670,13 @@ function App() {
   }
 
 
-  async function handleTextSubmit(
-    event,
-  ) {
-    event.preventDefault();
-
+  /*
+   * Shared send path used by both the composer form and the
+   * welcome-screen prompt cards. `rawText` is the message to send.
+   */
+  async function submitQuestion(rawText) {
     const cleanQuestion =
-      question.trim();
+      (rawText || "").trim();
 
     if (
       !cleanQuestion ||
@@ -576,17 +705,12 @@ function App() {
       const result =
         await sendMessage({
           question: cleanQuestion,
-          userId: USER_ID,
           sessionId:
             textSessionId,
         });
 
       saveTextSession(
         result.session_id,
-      );
-
-      setBackendStatus(
-        "connected",
       );
 
       setMessages(
@@ -598,11 +722,16 @@ function App() {
           ),
         ],
       );
-    } catch (requestError) {
-      setBackendStatus(
-        "disconnected",
-      );
 
+      // Track / refresh the conversation this message belongs to.
+      if (result.conversation_id) {
+        setActiveConversationId(
+          result.conversation_id,
+        );
+      }
+
+      void refreshConversations();
+    } catch (requestError) {
       setError(
         requestError.message ||
           "The message could not be sent.",
@@ -610,6 +739,13 @@ function App() {
     } finally {
       setIsTextLoading(false);
     }
+  }
+
+
+  function handleTextSubmit(event) {
+    event.preventDefault();
+
+    void submitQuestion(question);
   }
 
 
@@ -1073,7 +1209,6 @@ function App() {
       const agentResult =
         await sendMessage({
           question: transcript,
-          userId: USER_ID,
           sessionId:
             voiceSessionIdRef.current,
         });
@@ -1214,15 +1349,115 @@ function App() {
     );
 
     setTextSessionId("");
+    setActiveConversationId(null);
     setQuestion("");
     setError("");
 
-    setMessages([
-      createMessage(
-        "assistant",
-        "New conversation started. Type a message or start a voice call.",
-      ),
-    ]);
+    // The previous chat is safely saved in the sidebar list — not lost.
+    setMessages([]);
+  }
+
+
+  // Reload the sidebar list (after login, and after each new message).
+  async function refreshConversations() {
+    try {
+      const list = await getConversations();
+      setConversations(list);
+    } catch {
+      // Non-critical — leave the current list as-is.
+    }
+  }
+
+
+  // Open a saved conversation: load its messages and reuse its session so
+  // the user can continue it.
+  async function loadConversation(conversationId) {
+    if (callOpen || isTextLoading) {
+      return;
+    }
+
+    setError("");
+
+    try {
+      const detail = await getConversationMessages(
+        conversationId,
+      );
+
+      const loadedMessages = detail.messages.map(
+        (message) => ({
+          id: createId(),
+          role: message.role,
+          text: message.text,
+          createdAt: formatStoredTime(
+            message.created_at,
+          ),
+        }),
+      );
+
+      setMessages(loadedMessages);
+      setActiveConversationId(conversationId);
+
+      // Reuse the session so the next message appends to THIS conversation.
+      saveTextSession(detail.session_id);
+    } catch (loadError) {
+      setError(
+        loadError.message ||
+          "Could not open that conversation.",
+      );
+    }
+  }
+
+
+  /*
+   * Called by <ResetPasswordScreen> to leave the reset flow: strip the
+   * ?reset_token=... from the URL and fall back to the login screen.
+   */
+  function handleResetDone() {
+    window.history.replaceState(
+      {},
+      "",
+      window.location.pathname,
+    );
+
+    setResetToken("");
+  }
+
+
+  /*
+   * Called by <AuthScreen> after a successful login or register.
+   */
+  function handleAuthenticated(user) {
+    setCurrentUser({
+      user_id: user.user_id,
+      email: user.email,
+    });
+
+    setAuthStatus("authed");
+  }
+
+
+  function handleLogout() {
+    if (callOpen) {
+      closeVoiceCall();
+    }
+
+    // Throw away the token.
+    logout();
+
+    // Forget this user's conversation so the next login starts clean.
+    localStorage.removeItem(
+      "text_chat_session_id",
+    );
+
+    setTextSessionId("");
+    setActiveConversationId(null);
+    setConversations([]);
+    setMessages([]);
+    setQuestion("");
+    setError("");
+
+    setCurrentUser(null);
+    setAuthStatus("guest");
   }
 
 
@@ -1286,17 +1521,48 @@ function App() {
   }[callPhase];
 
 
+  // Still checking for an existing token: show a tiny placeholder.
+  if (authStatus === "checking") {
+    return (
+      <main className="auth-screen">
+        <div className="auth-loading">
+          Loading…
+        </div>
+      </main>
+    );
+  }
+
+  // Opened from a reset link: show the "set new password" screen.
+  if (resetToken) {
+    return (
+      <ResetPasswordScreen
+        token={resetToken}
+        onDone={handleResetDone}
+      />
+    );
+  }
+
+  // Not logged in: show the login / sign-up screen instead of the app.
+  if (authStatus !== "authed") {
+    return (
+      <AuthScreen
+        onAuthenticated={handleAuthenticated}
+      />
+    );
+  }
+
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
-            VA
+            A
           </div>
 
           <div>
             <strong>
-              AI Assistant
+              Aria
             </strong>
 
             <span>
@@ -1313,10 +1579,47 @@ function App() {
             startNewConversation
           }
         >
-          <span>＋</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
 
           New conversation
         </button>
+
+
+        {conversations.length > 0 && (
+          <div className="sidebar-section">
+            <p className="sidebar-heading">
+              Recent
+            </p>
+
+            <div className="conversation-list">
+              {conversations.map(
+                (conversation) => (
+                  <button
+                    key={conversation.id}
+                    type="button"
+                    className={
+                      conversation.id ===
+                      activeConversationId
+                        ? "conversation-item active"
+                        : "conversation-item"
+                    }
+                    onClick={() =>
+                      loadConversation(
+                        conversation.id,
+                      )
+                    }
+                    disabled={callOpen}
+                    title={conversation.title}
+                  >
+                    {conversation.title}
+                  </button>
+                ),
+              )}
+            </div>
+          </div>
+        )}
 
 
         <div className="sidebar-section">
@@ -1325,19 +1628,58 @@ function App() {
           </p>
 
           <div className="capability">
-            <span>◫</span>
+            <span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                <path d="M14 3v5h5" />
+                <path d="M9 13h6M9 17h6" />
+              </svg>
+            </span>
 
             Company-policy RAG
           </div>
 
           <div className="capability">
-            <span>⌕</span>
+            <span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+            </span>
 
             Current web search
           </div>
 
           <div className="capability">
-            <span>☎</span>
+            <span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M8 2v4" />
+                <path d="M16 2v4" />
+                <rect x="3" y="4" width="18" height="18" rx="2" />
+                <path d="M3 10h18" />
+              </svg>
+            </span>
+
+            Calendar scheduling
+          </div>
+
+          <div className="capability">
+            <span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="2" y="4" width="20" height="16" rx="2" />
+                <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+              </svg>
+            </span>
+
+            Email drafting &amp; sending
+          </div>
+
+          <div className="capability">
+            <span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+              </svg>
+            </span>
 
             AI voice calls
           </div>
@@ -1345,28 +1687,32 @@ function App() {
 
 
         <div className="sidebar-bottom">
-          <div
-            className={
-              `backend-status ${backendStatus}`
-            }
-          >
-            <span className="status-dot" />
+          <div className="sidebar-user">
+            <div className="sidebar-user-info">
+              <span className="sidebar-user-avatar">
+                {currentUser.email
+                  .slice(0, 1)
+                  .toUpperCase()}
+              </span>
 
-            <div>
-              <strong>
-                {backendStatus ===
-                "connected"
-                  ? "Backend online"
-                  : backendStatus ===
-                      "checking"
-                    ? "Checking backend"
-                    : "Backend offline"}
-              </strong>
-
-              <small>
-                FastAPI · LangGraph
-              </small>
+              <span className="sidebar-user-email">
+                {currentUser.email}
+              </span>
             </div>
+
+            <button
+              type="button"
+              className="logout-button"
+              onClick={handleLogout}
+              aria-label="Log out"
+              title="Log out"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <path d="m16 17 5-5-5-5" />
+                <path d="M21 12H9" />
+              </svg>
+            </button>
           </div>
         </div>
       </aside>
@@ -1376,7 +1722,7 @@ function App() {
         <header className="topbar">
           <div>
             <h1>
-              AI Assistant
+              Aria
             </h1>
 
             <p>
@@ -1416,7 +1762,58 @@ function App() {
 
 
         <section className="conversation">
-          <div className="conversation-inner">
+          {messages.length === 0 &&
+          !isTextLoading ? (
+            <div className="welcome">
+              <div className="welcome-mark">
+                A
+              </div>
+
+              <h2>
+                How can I help you today?
+              </h2>
+
+              <p>
+                Ask about company policies, search the web for
+                current information, or start a voice call.
+              </p>
+
+              <div className="prompt-grid">
+                {SUGGESTED_PROMPTS.map(
+                  (prompt) => (
+                    <button
+                      key={prompt.title}
+                      type="button"
+                      className="prompt-card"
+                      onClick={() =>
+                        submitQuestion(
+                          prompt.text,
+                        )
+                      }
+                      disabled={callOpen}
+                    >
+                      <span className="prompt-card-icon">
+                        <PromptIcon
+                          name={prompt.icon}
+                        />
+                      </span>
+
+                      <span className="prompt-card-text">
+                        <strong>
+                          {prompt.title}
+                        </strong>
+
+                        <span>
+                          {prompt.text}
+                        </span>
+                      </span>
+                    </button>
+                  ),
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="conversation-inner">
             {messages.map(
               (message) => (
                 <article
@@ -1428,7 +1825,7 @@ function App() {
                   <div className="avatar">
                     {message.role ===
                     "assistant"
-                      ? "AI"
+                      ? "A"
                       : "You"}
                   </div>
 
@@ -1437,7 +1834,7 @@ function App() {
                       <strong>
                         {message.role ===
                         "assistant"
-                          ? "Assistant"
+                          ? "Aria"
                           : "You"}
                       </strong>
 
@@ -1446,9 +1843,30 @@ function App() {
                       </span>
                     </div>
 
-                    <div className="message-body">
-                      {message.text}
+                    <div
+                      className={
+                        message.role ===
+                        "assistant"
+                          ? "message-body markdown"
+                          : "message-body"
+                      }
+                    >
+                      {message.role ===
+                      "assistant" ? (
+                        <MessageMarkdown>
+                          {message.text}
+                        </MessageMarkdown>
+                      ) : (
+                        message.text
+                      )}
                     </div>
+
+                    {message.role ===
+                      "assistant" && (
+                      <CopyButton
+                        text={message.text}
+                      />
+                    )}
                   </div>
                 </article>
               ),
@@ -1458,13 +1876,13 @@ function App() {
             {isTextLoading && (
               <article className="message assistant">
                 <div className="avatar">
-                  AI
+                  A
                 </div>
 
                 <div className="message-content">
                   <div className="message-heading">
                     <strong>
-                      Assistant
+                      Aria
                     </strong>
                   </div>
 
@@ -1485,7 +1903,8 @@ function App() {
 
 
             <div ref={messagesEndRef} />
-          </div>
+            </div>
+          )}
         </section>
 
 
@@ -1547,7 +1966,11 @@ function App() {
                 aria-label="Start voice call"
                 title="Start voice call"
               >
-                🎙
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <path d="M12 19v3" />
+                </svg>
               </button>
 
               <button
@@ -1560,7 +1983,10 @@ function App() {
                 }
                 aria-label="Send text message"
               >
-                ➜
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 19V5" />
+                  <path d="m5 12 7-7 7 7" />
+                </svg>
               </button>
             </div>
           </form>
@@ -1577,12 +2003,12 @@ function App() {
           <header className="voice-call-header">
             <div className="voice-call-title">
               <div className="call-mini-avatar">
-                AI
+                A
               </div>
 
               <div>
                 <strong>
-                  AI Voice Call
+                  Aria Voice Call
                 </strong>
 
                 <span>
@@ -1618,7 +2044,7 @@ function App() {
               <span className="call-ring ring-three" />
 
               <div className="call-avatar">
-                AI
+                A
               </div>
             </div>
 
@@ -1681,7 +2107,9 @@ function App() {
                 title="Stop AI voice and continue speaking"
               >
                 <span className="interrupt-icon">
-                  ■
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
                 </span>
 
                 Interrupt
@@ -1696,7 +2124,10 @@ function App() {
               }
               aria-label="End voice call"
             >
-              <span>☎</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 8.63 15.4a19.42 19.42 0 0 1-3.33-4.53" />
+                <path d="M22 2 2 22" />
+              </svg>
 
               End call
             </button>

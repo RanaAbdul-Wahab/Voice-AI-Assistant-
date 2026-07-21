@@ -5,10 +5,19 @@ from langgraph.graph import START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from app.config import settings
+from app.graphs.calendar_tool import create_calendar_event
+from app.graphs.datetime_tool import get_current_datetime
+from app.graphs.email_tool import send_email
 from app.graphs.rag_tool import search_company_documents
 from app.graphs.search_tool import search_web
 
-tools = [search_company_documents, search_web]
+tools = [
+    search_company_documents,
+    search_web,
+    get_current_datetime,
+    create_calendar_event,
+    send_email,
+]
 
 
 SYSTEM_PROMPT = """
@@ -28,7 +37,26 @@ You have access to these tools:
    Use this tool for recent, current, public, changing, or
    time-sensitive information.
 
+3. get_current_datetime
+   Use this tool whenever the answer depends on the current date or
+   time (today's date, the day of the week, "this week", deadlines).
+
+4. create_calendar_event
+   Use this to schedule an event on the user's Google Calendar. This
+   CHANGES their calendar, so always confirm the title, date, time, and
+   duration with the user before calling it. For relative times like
+   "tomorrow at 3pm", first call get_current_datetime.
+
+5. send_email
+   Use this to send an email from the user's Gmail account. Because this
+   sends a real email, always show the user the recipient, subject, and
+   body, and get a clear "yes" before calling it.
+
 Rules:
+
+- For any tool that acts in the real world (creating a calendar event,
+  sending an email), confirm the details with the user and get a clear
+  "yes" before calling it.
 
 - Use a tool only when it is relevant.
 - Do not invent information from company policies.
@@ -45,7 +73,8 @@ Rules:
 model = ChatGoogleGenerativeAI(
     model=settings.model_id,
     project=settings.google_cloud_project,
-    location=settings.google_cloud_location,
+    # Use the model endpoint region (default "global") — NOT the RAG region.
+    location=settings.model_location,
     vertexai=True,
     temperature=0.2,
     max_retries=3,

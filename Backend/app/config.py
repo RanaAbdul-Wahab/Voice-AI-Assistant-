@@ -69,6 +69,7 @@ class Settings:
     google_cloud_location: str
 
     model_id: str
+    model_location: str
     search_model_id: str
     search_location: str
 
@@ -77,6 +78,11 @@ class Settings:
     rag_distance_threshold: float
 
     frontend_origin: str
+
+    # JWT / authentication settings
+    jwt_secret_key: str
+    jwt_algorithm: str
+    jwt_expire_minutes: int
 
     @classmethod
     def from_environment(
@@ -103,6 +109,17 @@ class Settings:
                     "gemini-2.5-flash",
                 ).strip()
                 or "gemini-2.5-flash"
+            ),
+
+            # Endpoint region for the chat model. "global" pools capacity
+            # across regions and avoids the per-region 429s we hit in
+            # europe-west3. (RAG stays in its own region — see rag_tool.)
+            model_location=(
+                os.getenv(
+                    "MODEL_LOCATION",
+                    "global",
+                ).strip()
+                or "global"
             ),
 
             search_model_id=(
@@ -148,6 +165,34 @@ class Settings:
                     "http://localhost:5173",
                 ).strip()
                 or "http://localhost:5173"
+            ),
+
+            # Secret used to SIGN tokens. Anyone who knows it can forge
+            # tokens, so keep it out of git and set a real value in
+            # Backend/.env (JWT_SECRET_KEY). The default is dev-only.
+            jwt_secret_key=(
+                os.getenv(
+                    "JWT_SECRET_KEY",
+                    "dev-only-insecure-secret-change-me",
+                ).strip()
+                or "dev-only-insecure-secret-change-me"
+            ),
+
+            # HS256 = sign with a shared secret (simplest, fine here).
+            jwt_algorithm=(
+                os.getenv(
+                    "JWT_ALGORITHM",
+                    "HS256",
+                ).strip()
+                or "HS256"
+            ),
+
+            # How long a login stays valid. 1440 minutes = 24 hours.
+            jwt_expire_minutes=(
+                get_integer_environment(
+                    "JWT_EXPIRE_MINUTES",
+                    1440,
+                )
             ),
         )
 

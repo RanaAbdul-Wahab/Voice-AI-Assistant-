@@ -39,7 +39,18 @@ Frontend/.vite/
 *credentials*.json
 service-account*.json
 
+# Google OAuth (user authorization tokens — never commit)
+token.json
+Backend/token.json
+Backend/credentials.json
+
+# SQLite database (contains user data — never commit)
+*.db
+*.sqlite
+*.sqlite3
+
 # Editors and operating system
 .vscode/
+.claude/
 .DS_Store
 Thumbs.db

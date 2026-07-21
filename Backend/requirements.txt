@@ -13,3 +13,11 @@ google-genai>=1.0
 google-cloud-aiplatform>=1.100
 google-cloud-speech>=2.33
 google-cloud-texttospeech>=2.29
+
+# Authentication
+bcrypt>=4.0,<5.0
+PyJWT>=2.8,<3.0
+
+# Google Calendar + Gmail (per-user OAuth)
+google-api-python-client>=2.100
+google-auth-oauthlib>=1.2

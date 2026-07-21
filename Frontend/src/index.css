@@ -1,11 +1,14 @@
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
 
 :root {
-  font-family:
-    Inter,
+  /* Primary UI face: clean humanist sans. */
+  --font-sans:
+    "Inter",
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -13,11 +16,24 @@
     "Segoe UI",
     sans-serif;
 
-  color: #182033;
-  background: #f6f8fc;
+  /* Editorial serif used for headings, echoing Claude's display type. */
+  --font-serif:
+    ui-serif,
+    Georgia,
+    Cambria,
+    "Times New Roman",
+    serif;
+
+  font-family: var(--font-sans);
+
+  /* Light, neutral canvas with near-black ink. */
+  color: #18181b;
+  background: #ffffff;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 
@@ -42,6 +58,7 @@ textarea,
 select,
 input {
   font: inherit;
+  color: inherit;
 }
 
 
